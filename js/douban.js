@@ -423,22 +423,70 @@ function renderRecommend(tag, pageLimit, pageStart) {
     container.classList.add("relative");
     container.insertAdjacentHTML('beforeend', loadingOverlayHTML);
     
-    const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
+    // const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
     
+    // 新地址
+    const target = `https://api.tvmaze.com/shows`;  
+
     // 使用通用请求函数
-    fetchDoubanData(target)
+    fetchTvMazeData(target)
         .then(data => {
-            renderDoubanCards(data, container);
+
+            // 转换成原豆瓣格式
+            const convertedData = convertTvMazeToDoubanFormat(data);
+
+            renderDoubanCards(convertedData, container);
+
         })
         .catch(error => {
-            console.error("获取豆瓣数据失败：", error);
+
+            console.error("获取影视数据失败：", error);
+
             container.innerHTML = `
                 <div class="col-span-full text-center py-8">
-                    <div class="text-red-400">❌ 获取豆瓣数据失败，请稍后重试</div>
-                    <div class="text-gray-500 text-sm mt-2">提示：使用VPN可能有助于解决此问题</div>
+                    <div class="text-red-400">❌ 获取影视数据失败，请稍后重试</div>
                 </div>
             `;
         });
+}
+
+async function fetchTvMazeData(url) {
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    try {
+
+        const response = await fetch(url, {
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+
+        return await response.json();
+
+    } catch (err) {
+
+        console.error("TVMaze API 请求失败：", err);
+        throw err;
+
+    }
+}
+
+function convertTvMazeToDoubanFormat(tvData) {
+
+    const subjects = tvData.slice(0, 20).map(show => ({
+        title: show.name,
+        rate: show.rating?.average || "暂无",
+        cover: show.image?.medium || "",
+        url: show.url
+    }));
+
+    return { subjects };
 }
 
 async function fetchDoubanData(url) {
