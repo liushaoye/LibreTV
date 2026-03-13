@@ -107,6 +107,9 @@ function initDouban() {
     
     // 换一批按钮事件监听
     setupDoubanRefreshBtn();
+
+    // ====== 新增顶部三个标签和独立容器 ======
+    createTopCategoryTabs();
     
     // 初始加载热门内容
     if (localStorage.getItem('doubanEnabled') === 'true') {
@@ -114,6 +117,66 @@ function initDouban() {
        // renderRecommend("热门", doubanPageSize, 0)
         renderHomeRecommend()
     }
+}
+
+function createTopCategoryTabs() {
+    const doubanArea = document.getElementById('doubanArea');
+    if (!doubanArea) return;
+
+    // 创建顶部标签容器
+    const topTabs = document.createElement('div');
+    topTabs.id = 'top-category-tabs';
+    topTabs.className = 'flex space-x-4 mb-4';
+    doubanArea.insertBefore(topTabs, doubanArea.firstChild);
+
+    // 创建三个分类按钮
+    const categories = ['movie','tv','anime'];
+    const labels = { movie:'电影', tv:'电视剧', anime:'动漫' };
+
+    // 为每个分类创建对应独立容器
+    const containers = {};
+    categories.forEach(cat => {
+        // 按钮
+        const btn = document.createElement('button');
+        btn.textContent = labels[cat];
+        btn.dataset.tab = cat;
+        btn.className = cat==='movie' ? 'bg-pink-600 text-white px-4 py-2 rounded' : 'bg-[#1a1a1a] text-gray-300 px-4 py-2 rounded';
+        topTabs.appendChild(btn);
+
+        // 容器
+        const div = document.createElement('div');
+        div.id = `tab-${cat}`;
+        div.className = 'tab-content hidden';
+        doubanArea.appendChild(div);
+        containers[cat] = div;
+    });
+
+    // 默认显示电影
+    containers.movie.classList.remove('hidden');
+    doubanMovieTvCurrentSwitch = 'movie';
+
+    // 按钮点击切换
+    topTabs.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.dataset.tab;
+            // 高亮按钮
+            topTabs.querySelectorAll('button').forEach(b => {
+                b.classList.remove('bg-pink-600','text-white');
+                b.classList.add('bg-[#1a1a1a]','text-gray-300');
+            });
+            btn.classList.add('bg-pink-600','text-white');
+
+            // 显示对应容器
+            categories.forEach(c => {
+                containers[c].classList.toggle('hidden', c!==tab);
+            });
+
+            doubanMovieTvCurrentSwitch = tab;
+            doubanCurrentTag = '热门';
+            renderTopTags(); // 刷新顶部标签
+            renderRecommend(doubanCurrentTag, doubanPageSize, doubanPageStart);
+        });
+    });
 }
 
 // 动漫 API
@@ -175,38 +238,41 @@ function convertTV(data){
 
 async function renderHomeRecommend(){
 
-    const container=document.getElementById("douban-results");
+   // 获取三个独立容器
+    const movieContainer = document.getElementById("tab-movie");
+    const tvContainer = document.getElementById("tab-tv");
+    const animeContainer = document.getElementById("tab-anime");
 
-    container.innerHTML="";
+    if (!movieContainer || !tvContainer || !animeContainer) return;
 
-    try{
+    // 先清空旧内容
+    [movieContainer, tvContainer, animeContainer].forEach(c => c.innerHTML = "");
 
-        const tvData=await fetchTV();
-
-        const tvList=convertTV(tvData);
-
-        renderSection("🔥 热门电视剧",tvList,container);
-
-    }catch(e){
-
-        console.error("TV推荐失败",e);
-
+    // ----- 电影（可使用 fetchTVMazeMovie 或你的电影API） -----
+    try {
+        const movieData = await fetchTVMazeMovie(); // 返回 [{title, rate, cover, url}]
+        renderSection("🎬 热门电影", movieData, movieContainer);
+    } catch(e) {
+        console.error("电影推荐失败", e);
     }
 
-    try{
-
-        const animeData=await fetchBangumi();
-
-        const animeList=convertBangumi(animeData);
-
-        renderSection("🌸 热门动漫",animeList,container);
-
-    }catch(e){
-
-        console.error("动漫推荐失败",e);
-
+    // ----- 电视剧 -----
+    try {
+        const tvData = await fetchTV();
+        const tvList = convertTV(tvData);
+        renderSection("🔥 热门电视剧", tvList, tvContainer);
+    } catch(e) {
+        console.error("TV推荐失败", e);
     }
 
+    // ----- 动漫 -----
+    try {
+        const animeData = await fetchBangumi();
+        const animeList = convertBangumi(animeData);
+        renderSection("🌸 热门动漫", animeList, animeContainer);
+    } catch(e) {
+        console.error("动漫推荐失败", e);
+    }
 }
 
 function renderSection(title,list,container){
@@ -233,7 +299,7 @@ function renderSection(title,list,container){
             <div class="text-xs text-center mt-1 truncate">${item.title}</div>
         `;
 
-        card.onclick=()=>fillAndSearchWithDouban(encodeURIComponent(item.title));
+        card.onclick=()=>fillAndSearchWithDouban(item.title);
 
         grid.appendChild(card);
 
@@ -325,7 +391,7 @@ async function fillAndSearchWithDouban(title) {
     if (!title) return;
 
     // 解码
-    let keyword = decodeURIComponent(title);
+    let keyword =  title.trim().replace(/\s{2,}/g,' ');
 
     // 清理标题，提高搜索成功率
     keyword = keyword
