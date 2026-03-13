@@ -5,8 +5,8 @@ let defaultMovieTags = ['热门', '最新', '经典', '豆瓣高分', '冷门佳
 let defaultTvTags = ['热门', '美剧', '英剧', '韩剧', '日剧', '国产剧', '港剧', '日本动画', '综艺', '纪录片'];
 
 // 用户标签列表 - 存储用户实际使用的标签（包含保留的系统标签和用户添加的自定义标签）
-let movieTags = [];
-let tvTags = [];
+let movieTags = ['热门','评分高','最近更新'];
+let tvTags = ['热门','评分高','最近更新'];
 
 // 加载用户标签
 function loadUserTags() {
@@ -108,7 +108,8 @@ function initDouban() {
     
     // 初始加载热门内容
     if (localStorage.getItem('doubanEnabled') === 'true') {
-        renderRecommend(doubanCurrentTag, doubanPageSize, doubanPageStart);
+        // renderRecommend(doubanCurrentTag, doubanPageSize, doubanPageStart);
+        renderRecommend("热门", doubanPageSize, 0)
     }
 }
 
@@ -381,63 +382,62 @@ function setupDoubanRefreshBtn() {
     };
 }
 
-function fetchDoubanTags() {
-    const movieTagsTarget = `https://movie.douban.com/j/search_tags?type=movie`
-    fetchDoubanData(movieTagsTarget)
-        .then(data => {
-            movieTags = data.tags;
-            if (doubanMovieTvCurrentSwitch === 'movie') {
-                renderDoubanTags(movieTags);
-            }
-        })
-        .catch(error => {
-            console.error("获取豆瓣热门电影标签失败：", error);
-        });
-    const tvTagsTarget = `https://movie.douban.com/j/search_tags?type=tv`
-    fetchDoubanData(tvTagsTarget)
-       .then(data => {
-            tvTags = data.tags;
-            if (doubanMovieTvCurrentSwitch === 'tv') {
-                renderDoubanTags(tvTags);
-            }
-        })
-       .catch(error => {
-            console.error("获取豆瓣热门电视剧标签失败：", error);
-        });
-}
 
 // 渲染热门推荐内容
 function renderRecommend(tag, pageLimit, pageStart) {
+
     const container = document.getElementById("douban-results");
     if (!container) return;
 
     const loadingOverlayHTML = `
         <div class="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-10">
             <div class="flex items-center justify-center">
-                <div class="w-6 h-6 border-2 border-pink-500 border-t-transparent rounded-full animate-spin inline-block"></div>
+                <div class="w-6 h-6 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
                 <span class="text-pink-500 ml-4">加载中...</span>
             </div>
         </div>
     `;
 
     container.classList.add("relative");
-    container.insertAdjacentHTML('beforeend', loadingOverlayHTML);
-    
-    // const target = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
-    
-    // 新地址
-    const target = `https://api.tvmaze.com/shows`;  
+    container.innerHTML = loadingOverlayHTML;
 
-    // 使用通用请求函数
-    fetchTvMazeData(target)
+    const target = `https://api.tvmaze.com/shows?page=${Math.floor(pageStart/pageLimit)}`;
+
+    fetchDoubanData(target)
+
         .then(data => {
 
-            // 转换成原豆瓣格式
-            const convertedData = convertTvMazeToDoubanFormat(data);
+            let list = data;
 
-            renderDoubanCards(convertedData, container);
+            // 标签过滤
+            if (tag === "评分高") {
+
+                list = data.sort((a,b)=>(b.rating?.average||0)-(a.rating?.average||0));
+
+            }
+
+            if (tag === "最近更新") {
+
+                list = data.sort((a,b)=> new Date(b.updated)-new Date(a.updated));
+
+            }
+
+            const subjects = list.slice(0,pageLimit).map(show => ({
+
+                title: show.name || "未知",
+
+                rate: show.rating?.average || "暂无",
+
+                cover: show.image?.medium || "",
+
+                url: show.url || "#"
+
+            }));
+
+            renderDoubanCards({subjects}, container);
 
         })
+
         .catch(error => {
 
             console.error("获取影视数据失败：", error);
@@ -447,7 +447,9 @@ function renderRecommend(tag, pageLimit, pageStart) {
                     <div class="text-red-400">❌ 获取影视数据失败，请稍后重试</div>
                 </div>
             `;
+
         });
+
 }
 
 async function fetchTvMazeData(url) {
@@ -476,60 +478,23 @@ function convertTvMazeToDoubanFormat(tvData) {
 }
 
 async function fetchDoubanData(url) {
-    // 添加超时控制
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
-    
-    // 设置请求选项，包括信号和头部
-    const fetchOptions = {
-        signal: controller.signal,
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Referer': 'https://movie.douban.com/',
-            'Accept': 'application/json, text/plain, */*',
-        }
-    };
+   try {
 
-    try {
-        // 添加鉴权参数到代理URL
-        const proxiedUrl = await window.ProxyAuth?.addAuthToProxyUrl ? 
-            await window.ProxyAuth.addAuthToProxyUrl(PROXY_URL + encodeURIComponent(url)) :
-            PROXY_URL + encodeURIComponent(url);
-            
-        // 尝试直接访问（豆瓣API可能允许部分CORS请求）
-        const response = await fetch(proxiedUrl, fetchOptions);
-        clearTimeout(timeoutId);
-        
+        const response = await fetch(url);
+
         if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            throw new Error("API 请求失败");
         }
-        
-        return await response.json();
+
+        const data = await response.json();
+
+        return data;
+
     } catch (err) {
-        console.error("豆瓣 API 请求失败（直接代理）：", err);
-        
-        // 失败后尝试备用方法：作为备选
-        const fallbackUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-        
-        try {
-            const fallbackResponse = await fetch(fallbackUrl);
-            
-            if (!fallbackResponse.ok) {
-                throw new Error(`备用API请求失败! 状态: ${fallbackResponse.status}`);
-            }
-            
-            const data = await fallbackResponse.json();
-            
-            // 解析原始内容
-            if (data && data.contents) {
-                return JSON.parse(data.contents);
-            } else {
-                throw new Error("无法获取有效数据");
-            }
-        } catch (fallbackErr) {
-            console.error("豆瓣 API 备用请求也失败：", fallbackErr);
-            throw fallbackErr; // 向上抛出错误，让调用者处理
-        }
+
+        console.error("API 请求失败:", err);
+        throw err;
+
     }
 }
 
