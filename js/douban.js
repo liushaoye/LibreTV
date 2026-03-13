@@ -452,28 +452,14 @@ function renderRecommend(tag, pageLimit, pageStart) {
 
 async function fetchTvMazeData(url) {
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    try {
-
-        const response = await fetch(url, {
-            signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-
-        return await response.json();
-
-    } catch (err) {
-
+    try{
+        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+        if(!response.ok) throw new Error("备用API请求失败");
+        const data = await response.json();
+        return JSON.parse(data.contents);
+    }catch(err){
         console.error("TVMaze API 请求失败：", err);
         throw err;
-
     }
 }
 
