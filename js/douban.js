@@ -424,13 +424,13 @@ function renderRecommend(tag, pageLimit, pageStart) {
 
             const subjects = list.slice(0,pageLimit).map(show => ({
 
-                title: show.name || "未知",
+               title: show.name || "未知",
 
-                rate: show.rating?.average || "暂无",
+               rate: (show.rating?.average ?? "暂无").toString(),
 
-                cover: show.image?.medium || "",
+               cover: show.image?.medium || "",
 
-                url: show.url || "#"
+               url: show.url || "#"
 
             }));
 
