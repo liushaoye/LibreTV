@@ -1,9 +1,11 @@
 // 豆瓣热门电影电视剧推荐功能
 
 // 豆瓣标签列表 - 修改为默认标签
-let defaultMovieTags = ['热门', '最新', '经典', '豆瓣高分', '冷门佳片', '华语', '欧美', '韩国', '日本', '动作', '喜剧', '日综', '爱情', '科幻', '悬疑', '恐怖', '治愈'];
-let defaultTvTags = ['热门', '美剧', '英剧', '韩剧', '日剧', '国产剧', '港剧', '日本动画', '综艺', '纪录片'];
-
+// let defaultMovieTags = ['热门', '最新', '经典', '豆瓣高分', '冷门佳片', '华语', '欧美', '韩国', '日本', '动作', '喜剧', '日综', '爱情', '科幻', '悬疑', '恐怖', '治愈'];
+// let defaultTvTags = ['热门', '美剧', '英剧', '韩剧', '日剧', '国产剧', '港剧', '日本动画', '综艺', '纪录片'];
+let defaultMovieTags = ['热门', '热门动漫','热门电视剧'];
+let defaultTvTags = ['热门', '热门动漫','热门电视剧'];
+                        
 // 用户标签列表 - 存储用户实际使用的标签（包含保留的系统标签和用户添加的自定义标签）
 let movieTags = ['热门','评分高','最近更新'];
 let tvTags = ['热门','评分高','最近更新'];
@@ -109,9 +111,138 @@ function initDouban() {
     // 初始加载热门内容
     if (localStorage.getItem('doubanEnabled') === 'true') {
         // renderRecommend(doubanCurrentTag, doubanPageSize, doubanPageStart);
-        renderRecommend("热门", doubanPageSize, 0)
+       // renderRecommend("热门", doubanPageSize, 0)
+        renderHomeRecommend()
     }
 }
+
+// 动漫 API
+async function fetchBangumi() {
+
+    const url = "https://api.bgm.tv/v0/subjects?type=2&limit=50";
+
+    const res = await fetch(url);
+
+    if (!res.ok) throw new Error("Bangumi API失败");
+
+    const data = await res.json();
+
+    return data.data;
+}
+
+function convertBangumi(data){
+
+    return data.map(item=>({
+
+        title:item.name_cn || item.name,
+
+        rate:(item.rating?.score ?? "暂无").toString(),
+
+        cover:item.images?.large || item.images?.common,
+
+        url:`https://bgm.tv/subject/${item.id}`
+
+    }));
+
+}
+
+// 电视剧继续用 TVMaze
+async function fetchTV(){
+
+    const res = await fetch("https://api.tvmaze.com/shows?page=1");
+
+    if(!res.ok) throw new Error("TVMaze失败");
+
+    return await res.json();
+
+}
+
+function convertTV(data){
+
+    return data.slice(0,36).map(show=>({
+
+        title:show.name,
+
+        rate:(show.rating?.average ?? "暂无").toString(),
+
+        cover:show.image?.medium,
+
+        url:show.url
+
+    }));
+
+}
+
+async function renderHomeRecommend(){
+
+    const container=document.getElementById("douban-results");
+
+    container.innerHTML="";
+
+    try{
+
+        const tvData=await fetchTV();
+
+        const tvList=convertTV(tvData);
+
+        renderSection("🔥 热门电视剧",tvList,container);
+
+    }catch(e){
+
+        console.error("TV推荐失败",e);
+
+    }
+
+    try{
+
+        const animeData=await fetchBangumi();
+
+        const animeList=convertBangumi(animeData);
+
+        renderSection("🌸 热门动漫",animeList,container);
+
+    }catch(e){
+
+        console.error("动漫推荐失败",e);
+
+    }
+
+}
+
+function renderSection(title,list,container){
+
+    const block=document.createElement("div");
+
+    block.className="mb-10";
+
+    block.innerHTML=`
+        <h2 class="text-xl font-bold text-white mb-4">${title}</h2>
+        <div class="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-9 gap-3"></div>
+    `;
+
+    const grid=block.querySelector("div");
+
+    list.forEach(item=>{
+
+        const card=document.createElement("div");
+
+        card.className="cursor-pointer";
+
+        card.innerHTML=`
+            <img src="${item.cover}" class="w-full rounded hover:scale-105 transition">
+            <div class="text-xs text-center mt-1 truncate">${item.title}</div>
+        `;
+
+        card.onclick=()=>fillAndSearchWithDouban(encodeURIComponent(item.title));
+
+        grid.appendChild(card);
+
+    });
+
+    container.appendChild(block);
+
+}
+
 
 // 根据设置更新豆瓣区域的显示状态
 function updateDoubanVisibility() {
@@ -192,6 +323,18 @@ function fillAndSearch(title) {
 // 填充搜索框，确保豆瓣资源API被选中，然后执行搜索
 async function fillAndSearchWithDouban(title) {
     if (!title) return;
+
+    // 解码
+    let keyword = decodeURIComponent(title);
+
+    // 清理标题，提高搜索成功率
+    keyword = keyword
+        .replace(/\(\d{4}\)/g, '')       // 去掉年份 (2023)
+        .replace(/Season\s*\d+/gi, '')   // 去掉 Season 1
+        .replace(/第\s*\d+\s*季/g, '')    // 去掉 第1季
+        .replace(/[:：].*/,'')           // 去掉副标题
+        .replace(/\s{2,}/g,' ')          // 多空格
+        .trim();
     
     // 安全处理标题，防止XSS
     const safeTitle = title
@@ -201,58 +344,64 @@ async function fillAndSearchWithDouban(title) {
     
     // 确保豆瓣资源API被选中
     if (typeof selectedAPIs !== 'undefined' && !selectedAPIs.includes('dbzy')) {
-        // 在设置中勾选豆瓣资源API复选框
-        const doubanCheckbox = document.querySelector('input[id="api_dbzy"]');
+      const doubanCheckbox = document.querySelector('#api_dbzy');
+
         if (doubanCheckbox) {
+
             doubanCheckbox.checked = true;
-            
-            // 触发updateSelectedAPIs函数以更新状态
+
             if (typeof updateSelectedAPIs === 'function') {
+
                 updateSelectedAPIs();
+
             } else {
-                // 如果函数不可用，则手动添加到selectedAPIs
+
                 selectedAPIs.push('dbzy');
                 localStorage.setItem('selectedAPIs', JSON.stringify(selectedAPIs));
-                
-                // 更新选中API计数（如果有这个元素）
+
                 const countEl = document.getElementById('selectedAPICount');
-                if (countEl) {
-                    countEl.textContent = selectedAPIs.length;
-                }
+                if (countEl) countEl.textContent = selectedAPIs.length;
+
             }
-            
-            showToast('已自动选择豆瓣资源API', 'info');
+
         }
+
     }
     
     // 填充搜索框并执行搜索
     const input = document.getElementById('searchInput');
-    if (input) {
-        input.value = safeTitle;
-        await search(); // 使用已有的search函数执行搜索
-        
-        // 更新浏览器URL，使其反映当前的搜索状态
-        try {
-            // 使用URI编码确保特殊字符能够正确显示
-            const encodedQuery = encodeURIComponent(safeTitle);
-            // 使用HTML5 History API更新URL，不刷新页面
-            window.history.pushState(
-                { search: safeTitle }, 
-                `搜索: ${safeTitle} - LibreTV`, 
-                `/s=${encodedQuery}`
-            );
-            // 更新页面标题
-            document.title = `搜索: ${safeTitle} - LibreTV`;
-        } catch (e) {
-            console.error('更新浏览器历史失败:', e);
-        }
+     if (!input) return;
 
-        if (window.innerWidth <= 768) {
-          window.scrollTo({
-              top: 0,
-              behavior: 'smooth'
-          });
-        }
+    input.value = safeTitle;
+
+    await search();
+
+    // 更新URL
+    try {
+
+        const encodedQuery = encodeURIComponent(safeTitle);
+
+        window.history.pushState(
+            { search: safeTitle },
+            `搜索: ${safeTitle} - LibreTV`,
+            `/s=${encodedQuery}`
+        );
+
+        document.title = `搜索: ${safeTitle} - LibreTV`;
+
+    } catch(e) {
+
+        console.error("URL更新失败:", e);
+
+    }
+
+    // 手机自动滚动
+    if (window.innerWidth <= 768) {
+
+        window.scrollTo({
+            top:0,
+            behavior:"smooth"
+        });
     }
 }
 
@@ -401,8 +550,9 @@ function renderRecommend(tag, pageLimit, pageStart) {
     container.classList.add("relative");
     container.innerHTML = loadingOverlayHTML;
 
-    const target = `https://api.tvmaze.com/shows?page=${Math.floor(pageStart/pageLimit)}`;
-
+    const page = Math.floor(pageStart/pageLimit) % 200;
+    const target = `https://api.tvmaze.com/shows?page=${page}`;
+    
     fetchDoubanData(target)
 
         .then(data => {
@@ -428,7 +578,7 @@ function renderRecommend(tag, pageLimit, pageStart) {
 
                rate: (show.rating?.average ?? "暂无").toString(),
 
-               cover: show.image?.medium || "",
+               cover: show.image?.medium || "https://via.placeholder.com/300x450?text=No+Image",
 
                url: show.url || "#"
 
@@ -467,7 +617,7 @@ async function fetchTvMazeData(url) {
 
 function convertTvMazeToDoubanFormat(tvData) {
 
-    const subjects = tvData.slice(0, 20).map(show => ({
+    const subjects = tvData.slice(0, 56).map(show => ({
         title: show.name,
         rate: show.rating?.average || "暂无",
         cover: show.image?.medium || "",
@@ -536,7 +686,7 @@ function renderDoubanCards(data, container) {
             
             // 为不同设备优化卡片布局
             card.innerHTML = `
-                <div class="relative w-full aspect-[2/3] overflow-hidden cursor-pointer" onclick="fillAndSearchWithDouban('${safeTitle}')">
+                <div class="relative w-full aspect-[2/3] overflow-hidden cursor-pointer" onclick="fillAndSearchWithDouban(encodeURIComponent('${safeTitle}'))">
                     <img src="${originalCoverUrl}" alt="${safeTitle}" 
                         class="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
                         onerror="this.onerror=null; this.src='${proxiedCoverUrl}'; this.classList.add('object-contain');"
